@@ -390,6 +390,7 @@ def ingest_file(
         "slug": source_meta["slug"],
         "name": source_meta["name"],
         "sector": source_meta["sector"],
+        "source_type": source_meta.get("source_type", "guidance"),
         "file": pdf_path.name,
         "source_url": source_meta.get("index_url", ""),
         "sha256": sha256,

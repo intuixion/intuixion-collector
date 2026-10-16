@@ -1,0 +1,27 @@
+# intx-qdrant — Qdrant vector store, Fly.io Johannesburg
+# Deploy: flyctl deploy --config qdrant-fly/fly.toml
+
+app = "intx-qdrant"
+primary_region = "jnb"
+
+[build]
+  image = "qdrant/qdrant:latest"
+
+[env]
+  QDRANT__SERVICE__HTTP_PORT = "6333"
+
+[http_service]
+  internal_port = 6333
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "qdrant_storage"
+  destination = "/qdrant/storage"

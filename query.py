@@ -17,6 +17,7 @@ Usage (library):
 import argparse
 import json
 import os
+import threading
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -36,18 +37,32 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 _oai: Optional[OpenAI] = None
 _qdrant: Optional[QdrantClient] = None
+_clients_lock = threading.Lock()
 
 
 def _clients() -> tuple[OpenAI, QdrantClient]:
     global _oai, _qdrant
-    if _oai is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise SystemExit("OPENAI_API_KEY not set. Add it to .env or the shell.")
-        _oai = OpenAI(api_key=api_key)
-    if _qdrant is None:
-        _qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_URL \
-            else QdrantClient(":memory:")
+    if _oai is None or _qdrant is None:
+        with _clients_lock:
+            if _oai is None:
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    raise SystemExit("OPENAI_API_KEY not set. Add it to .env or the shell.")
+                _oai = OpenAI(api_key=api_key)
+            if _qdrant is None:
+                if QDRANT_URL:
+                    from urllib.parse import urlparse
+                    _p = urlparse(QDRANT_URL)
+                    _use_https = _p.scheme == "https"
+                    _port = _p.port or (443 if _use_https else 6333)
+                    _qdrant = QdrantClient(
+                        host=_p.hostname,
+                        port=_port,
+                        https=_use_https,
+                        api_key=QDRANT_API_KEY,
+                    )
+                else:
+                    _qdrant = QdrantClient(":memory:")
     return _oai, _qdrant
 
 
@@ -128,6 +143,7 @@ def retrieve(
             "slug": payload.get("slug"),
             "name": payload.get("name"),
             "sector": payload.get("sector"),
+            "source_type": payload.get("source_type"),
             "file": payload.get("file"),
             "source_url": payload.get("source_url"),
             "chunk_idx": payload.get("chunk_idx"),

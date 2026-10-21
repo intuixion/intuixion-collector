@@ -162,6 +162,29 @@ def health():
             "service": "intuixion-docurag", "version": "1.2.0"}
 
 
+def _extract_agent_slugs(history: list[dict]) -> set[str]:
+    """
+    Pull slug values from retrieve_context tool results in the agent history.
+    Tool results embed chunks as: '[Chunk N] Name (slug: xxx, relevance: ...)'
+    """
+    import re
+    slugs: set[str] = set()
+    for turn in history:
+        content = turn.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_result":
+                continue
+            raw = item.get("content", "")
+            if isinstance(raw, str):
+                for m in re.finditer(r"\(slug:\s*([^,\)]+)", raw):
+                    slug = m.group(1).strip()
+                    if slug:
+                        slugs.add(slug)
+    return slugs
+
+
 def _run_query(req: QueryRequest) -> QueryResponse:
     """Core query logic — shared by root and /v1/ endpoints."""
     if not req.question.strip():
@@ -170,7 +193,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
     retrieve = _get_retriever()
     run_agent = _get_agent()
 
-    # ── 1. Retrieve ──────────────────────────────────────────────────────────
+    # ── 1. Retrieve (for citations list + confidence scoring) ────────────────
     t0 = time.time()
     try:
         chunks = retrieve(
@@ -183,8 +206,6 @@ def _run_query(req: QueryRequest) -> QueryResponse:
         raise HTTPException(status_code=503, detail=f"Retrieval failed: {exc}")
     retrieval_ms = int((time.time() - t0) * 1000)
 
-    retrieved_slugs = {c.get("slug", "") for c in chunks if c.get("slug")}
-
     # ── 2. Score confidence (deterministic, before generation) ───────────────
     if is_enabled("confidence_scoring"):
         confidence_tier, source_breakdown = confidence_score(chunks)
@@ -194,7 +215,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
     # ── 3. Generate ──────────────────────────────────────────────────────────
     t1 = time.time()
     try:
-        answer, _ = run_agent(
+        answer, agent_history = run_agent(
             user_message=req.question,
             history=[],
             sector_hint=req.sector,
@@ -203,6 +224,11 @@ def _run_query(req: QueryRequest) -> QueryResponse:
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Agent failed: {exc}")
     answer_ms = int((time.time() - t1) * 1000)
+
+    # Use the slugs the agent actually retrieved, not the pre-retrieval set.
+    # This prevents false-positive hallucination flags when the agent uses
+    # different query phrasing than the pre-retrieval call.
+    retrieved_slugs = _extract_agent_slugs(agent_history) or {c.get("slug", "") for c in chunks if c.get("slug")}
 
     # ── 4. Validate citations (Option A — deterministic) ─────────────────────
     t2 = time.time()
@@ -218,14 +244,15 @@ def _run_query(req: QueryRequest) -> QueryResponse:
         repair_msg = repair_prompt(req.question, validation.flagged_clauses)
         try:
             t_retry = time.time()
-            answer_retry, _ = run_agent(
+            answer_retry, retry_history = run_agent(
                 user_message=repair_msg,
                 history=[],
                 sector_hint=req.sector,
                 verbose=False,
             )
             answer_ms += int((time.time() - t_retry) * 1000)
-            validation_retry = validate_citations(answer_retry, retrieved_slugs)
+            retry_slugs = _extract_agent_slugs(retry_history) or retrieved_slugs
+            validation_retry = validate_citations(answer_retry, retry_slugs)
             if validation_retry.status == "grounded":
                 answer = answer_retry
                 validation = validation_retry

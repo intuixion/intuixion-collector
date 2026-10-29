@@ -39,9 +39,16 @@ def validate(answer: str, retrieved_slugs: set[str]) -> ValidationResult:
     """
     Check grounding. retrieved_slugs is the set of slug values from the
     chunks returned by retrieve() for this query.
+
+    Flags:
+    - Hallucinated citations (cited slug not in retrieved set) — always flagged.
+    - Uncited claim sentences — only flagged when the answer has zero citations
+      total; an answer with ≥1 citation is attempting to ground itself and the
+      per-sentence check produces too many false positives on structural sentences.
     """
     sentences = _split_sentences(answer)
-    flagged: list[str] = []
+    uncited_claims: list[str] = []
+    hallucination_flags: list[str] = []
     cited_ids: list[str] = []
     hallucinated: list[str] = []
 
@@ -57,21 +64,35 @@ def validate(answer: str, retrieved_slugs: set[str]) -> ValidationResult:
                 slug_candidate = re.split(r"[,\s]", tag)[0].strip().lower()
                 if not any(slug_candidate in s.lower() for s in retrieved_slugs):
                     hallucinated.append(tag)
-                    flagged.append(f"Hallucinated citation [{tag}]: {sentence.strip()[:120]}")
+                    hallucination_flags.append(
+                        f"Hallucinated citation [{tag}]: {sentence.strip()[:120]}"
+                    )
 
-        # Claim with no citation
+        # Collect uncited claim sentences (applied only when no citations exist)
         if _CLAIM_VERBS.search(sentence) and not tags:
-            # Skip boilerplate disclaimers ("you should consult a professional")
             if not re.search(r"\b(consult|seek|qualified professional|verify)\b", sentence, re.I):
-                flagged.append(sentence.strip()[:200])
+                uncited_claims.append(sentence.strip()[:200])
 
-    if flagged or hallucinated:
+    # Hallucinated citations always trigger a flag
+    if hallucinated:
         return ValidationResult(
             status="flagged",
-            flagged_clauses=list(dict.fromkeys(flagged)),  # deduplicate, preserve order
+            flagged_clauses=list(dict.fromkeys(hallucination_flags)),
             cited_ids=cited_ids,
             hallucinated_ids=hallucinated,
         )
+
+    # Uncited claims only flag when the whole answer has zero citations —
+    # an answer with at least one citation is grounding itself; per-sentence
+    # checks fire on structural/introductory sentences and cause spurious retries
+    if not cited_ids and uncited_claims:
+        return ValidationResult(
+            status="flagged",
+            flagged_clauses=list(dict.fromkeys(uncited_claims)),
+            cited_ids=cited_ids,
+            hallucinated_ids=hallucinated,
+        )
+
     return ValidationResult(status="grounded", cited_ids=cited_ids)
 
 

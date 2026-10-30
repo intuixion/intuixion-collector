@@ -67,8 +67,13 @@ def _run_judge(row_id: str, flagged_clauses: list[str], chunks: list[dict]) -> N
 
             prompt = _JUDGE_PROMPT.format(claim=clause[:400], chunk_text=best_chunk[:800])
             try:
+                _default_judge = (
+                    "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    if os.getenv("LLM_PROVIDER", "anthropic") == "bedrock"
+                    else "claude-haiku-4-5-20251001"
+                )
                 resp = client.messages.create(
-                    model=os.getenv("JUDGE_MODEL", "claude-haiku-4-5-20251001"),
+                    model=os.getenv("JUDGE_MODEL", _default_judge),
                     max_tokens=128,
                     messages=[{"role": "user", "content": prompt}],
                 )

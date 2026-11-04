@@ -101,6 +101,7 @@ FILENAME_BLOCKLIST: set[str] = {
 
 # API behaviour
 EMBED_BATCH_SIZE = 50
+UPSERT_BATCH_SIZE = 100       # points per Qdrant upsert call (avoids WinError 10053 on large PDFs)
 RATE_LIMIT_DELAY = 0.3        # seconds between embedding API batches
 
 # Fallbacks when manifest omits values
@@ -343,7 +344,8 @@ def upsert_chunks(
         )
         for idx, (chunk, vec) in enumerate(zip(chunks, embeddings))
     ]
-    qdrant.upsert(collection_name=collection, points=points)
+    for i in range(0, len(points), UPSERT_BATCH_SIZE):
+        qdrant.upsert(collection_name=collection, points=points[i : i + UPSERT_BATCH_SIZE])
     return len(points)
 
 

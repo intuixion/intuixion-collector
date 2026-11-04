@@ -28,7 +28,7 @@ import json
 import os
 import sys
 import threading
-from typing import Optional
+from typing import Iterator, Optional
 
 import anthropic
 from dotenv import load_dotenv
@@ -73,7 +73,7 @@ def _get_llm_client():
     return _llm_client
 
 
-MAX_CONTEXT_CHUNKS = 8
+MAX_CONTEXT_CHUNKS = 12
 CACHE_MIN_TOKENS = 1024  # minimum tokens to make prompt caching worthwhile
 
 # ---------------------------------------------------------------------------
@@ -140,8 +140,8 @@ TOOLS = [
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Number of chunks to retrieve (default 6, max 12).",
-                    "default": 6,
+                    "description": "Number of chunks to retrieve (default 10, max 12).",
+                    "default": 10,
                 },
                 "sector": {
                     "type": "string",
@@ -267,6 +267,66 @@ def run_agent(
         break
 
     return "I was unable to complete your request.", history
+
+
+# ---------------------------------------------------------------------------
+# Streaming agent (Phase 2 — SSE support)
+# ---------------------------------------------------------------------------
+def run_agent_stream(
+    user_message: str,
+    history: list[dict],
+    sector_hint: Optional[str] = None,
+) -> Iterator[str]:
+    """
+    Generator that yields raw text tokens for the final assistant answer.
+
+    Tool-use turns are executed synchronously (no text to yield). The
+    caller accumulates tokens for validation and audit after the stream ends.
+    Use with the /v1/query/stream SSE endpoint.
+    """
+    client = _get_llm_client()
+    if sector_hint:
+        user_message = f"[Context: focusing on {sector_hint} sector]\n\n{user_message}"
+    history = history + [{"role": "user", "content": user_message}]
+
+    while True:
+        with client.messages.stream(
+            model=MODEL,
+            max_tokens=4096,
+            system=[
+                {
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            tools=TOOLS,
+            messages=history,
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+            message = stream.get_final_message()
+
+        history = history + [{"role": "assistant", "content": message.content}]
+
+        if message.stop_reason == "end_turn":
+            return
+
+        if message.stop_reason == "tool_use":
+            tool_results = []
+            for block in message.content:
+                if block.type != "tool_use":
+                    continue
+                result = run_tool(block.name, block.input)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result,
+                })
+            history = history + [{"role": "user", "content": tool_results}]
+            continue
+
+        return  # unexpected stop reason
 
 
 # ---------------------------------------------------------------------------

@@ -107,7 +107,7 @@ def retrieve(
     query_filter = Filter(must=conditions) if conditions else None
 
     vector = _embed(query)
-    fetch_k = max(top_k * 3, 20)
+    fetch_k = max(top_k * 4, 30)
 
     def _search(filt):
         r = qdrant.query_points(

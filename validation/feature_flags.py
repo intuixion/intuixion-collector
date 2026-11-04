@@ -25,6 +25,7 @@ _ALL_FLAGS = {
     "audit_logging",
     "confidence_scoring",
     "saflii_links",
+    "conflict_detection",   # Phase 2: cross-statute reconciliation note
 }
 
 

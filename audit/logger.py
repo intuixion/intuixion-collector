@@ -215,3 +215,43 @@ def update_judge_result(row_id: str, verdicts: list[dict]) -> None:
             "UPDATE query_audit_log SET flagged_clauses = ? WHERE id = ?",
             (json.dumps(verdicts), row_id),
         )
+
+
+def resolve_flagged(
+    row_id: str,
+    resolution: str,
+    corrected_answer: Optional[str] = None,
+) -> bool:
+    """
+    Mark a flagged query as resolved by an internal reviewer.
+
+    resolution: "confirmed_ok" | "confirmed_bad" | "edited"
+    corrected_answer: supply when resolution == "edited"; replaces the generated answer.
+    Returns True if the row was found and updated, False if not found.
+    """
+    _valid = {"confirmed_ok", "confirmed_bad", "edited"}
+    if resolution not in _valid:
+        raise ValueError(f"resolution must be one of {_valid}")
+
+    with _conn() as con:
+        row = con.execute(
+            "SELECT id FROM query_audit_log WHERE id = ? AND validation_status = 'flagged'",
+            (row_id,),
+        ).fetchone()
+        if row is None:
+            return False
+
+        new_status = f"resolved_{resolution}"
+        if corrected_answer:
+            con.execute(
+                """UPDATE query_audit_log
+                   SET validation_status = ?, generated_answer = ?
+                   WHERE id = ?""",
+                (new_status, encrypt(corrected_answer), row_id),
+            )
+        else:
+            con.execute(
+                "UPDATE query_audit_log SET validation_status = ? WHERE id = ?",
+                (new_status, row_id),
+            )
+    return True

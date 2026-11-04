@@ -11,6 +11,7 @@ All endpoints are available at both root and /v1/ prefix (v1 is canonical):
     GET  /v1/metrics     — lightweight operational metrics
 """
 
+import json as _json_mod
 import os
 import shutil
 import tempfile
@@ -23,7 +24,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -37,9 +38,10 @@ if _sentry_dsn:
     except ImportError:
         pass  # sentry_sdk not installed — skip silently
 
-from audit.logger import init_db, log_query, flagged_review_queue, demand_signals, query_metrics
+from audit.logger import init_db, log_query, flagged_review_queue, demand_signals, query_metrics, resolve_flagged
 from validation.citation_parser import validate as validate_citations, repair_prompt, ValidationResult
 from validation.confidence_scoring import score as confidence_score, infer_source_type
+from validation.conflict_detector import detect_conflicts
 from validation.feature_flags import is_enabled
 from validation.grounding_judge import judge_in_background
 from validation.saflii import saflii_url as _saflii_url, noteup_url as _noteup_url
@@ -103,6 +105,8 @@ class QueryResponse(BaseModel):
     validation_ms: int = 0
     validation_status: str = "not_validated"   # 'grounded' | 'flagged' | 'not_validated'
     confidence_tier: str = "low"               # 'high' | 'medium' | 'low'
+    has_conflict: bool = False                 # Phase 2: multi-statute reconciliation flag
+    conflict_families: list[str] = []          # Phase 2: statute families present
 
 
 class IngestResponse(BaseModel):
@@ -206,17 +210,27 @@ def _run_query(req: QueryRequest) -> QueryResponse:
         raise HTTPException(status_code=503, detail=f"Retrieval failed: {exc}")
     retrieval_ms = int((time.time() - t0) * 1000)
 
-    # ── 2. Score confidence (deterministic, before generation) ───────────────
+    # ── 2. Score confidence + detect cross-statute conflicts ─────────────────
     if is_enabled("confidence_scoring"):
         confidence_tier, source_breakdown = confidence_score(chunks)
     else:
         confidence_tier, source_breakdown = "low", {}
 
+    conflict_result = (
+        detect_conflicts(chunks)
+        if is_enabled("conflict_detection")
+        else {"has_conflict": False, "families": [], "reconcile_note": ""}
+    )
+
     # ── 3. Generate ──────────────────────────────────────────────────────────
+    agent_question = req.question
+    if conflict_result["has_conflict"] and conflict_result["reconcile_note"]:
+        agent_question = f"{req.question}\n\n{conflict_result['reconcile_note']}"
+
     t1 = time.time()
     try:
         answer, agent_history = run_agent(
-            user_message=req.question,
+            user_message=agent_question,
             history=[],
             sector_hint=req.sector,
             verbose=False,
@@ -314,6 +328,8 @@ def _run_query(req: QueryRequest) -> QueryResponse:
         validation_ms=validation_ms,
         validation_status=validation.status,
         confidence_tier=confidence_tier,
+        has_conflict=conflict_result["has_conflict"],
+        conflict_families=conflict_result["families"],
     )
 
 
@@ -441,6 +457,159 @@ async def v1_ingest(file: UploadFile = File(...), sector: str = Form(default="cr
 @v1.get("/sources", response_model=list[SourceItem])
 def v1_sources():
     return _sources_list()
+
+
+@v1.post("/query/stream")
+def v1_query_stream(req: QueryRequest):
+    """
+    SSE streaming endpoint — same semantics as /v1/query but streams answer tokens.
+
+    Event sequence:
+      {"type": "citations", "citations": [...], "retrieval_ms": N,
+       "confidence_tier": "...", "has_conflict": bool, "conflict_families": [...]}
+      {"type": "token", "content": "..."}  — one per text token
+      {"type": "done", "validation_status": "...", "answer_ms": N, "validation_ms": N}
+      {"type": "error", "detail": "..."}   — only on failure
+    """
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    retrieve = _get_retriever()
+
+    def _generate():
+        t0 = time.time()
+
+        # 1. Retrieve + confidence + conflict detection
+        try:
+            chunks = retrieve(query=req.question, top_k=req.top_k,
+                              sector=req.sector, slug=req.slug)
+        except Exception as exc:
+            yield f"data: {_json_mod.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+            return
+
+        retrieval_ms = int((time.time() - t0) * 1000)
+
+        confidence_tier, source_breakdown = (
+            confidence_score(chunks) if is_enabled("confidence_scoring") else ("low", {})
+        )
+        conflict_result = (
+            detect_conflicts(chunks)
+            if is_enabled("conflict_detection")
+            else {"has_conflict": False, "families": [], "reconcile_note": ""}
+        )
+
+        # Send citations before streaming (lets frontend populate the source panel)
+        cit_payload = [
+            {
+                "slug": c.get("slug", ""),
+                "name": c.get("name", ""),
+                "sector": c.get("sector", ""),
+                "chunk_idx": c.get("chunk_idx", 0),
+                "chunk_count": c.get("chunk_count", 0),
+                "score": c.get("score", 0.0),
+                "text": c.get("text", "")[:500],
+                "source_url": c.get("source_url", ""),
+                "source_type": infer_source_type(c),
+            }
+            for c in chunks
+        ]
+        _cit_evt = _json_mod.dumps({
+            "type": "citations",
+            "citations": cit_payload,
+            "retrieval_ms": retrieval_ms,
+            "confidence_tier": confidence_tier,
+            "has_conflict": conflict_result["has_conflict"],
+            "conflict_families": conflict_result["families"],
+        })
+        yield f"data: {_cit_evt}\n\n"
+
+        # 2. Stream answer tokens
+        from agent import run_agent_stream
+
+        agent_question = req.question
+        if conflict_result["has_conflict"] and conflict_result["reconcile_note"]:
+            agent_question = f"{req.question}\n\n{conflict_result['reconcile_note']}"
+
+        t1 = time.time()
+        full_answer = ""
+        try:
+            for token in run_agent_stream(
+                user_message=agent_question,
+                history=[],
+                sector_hint=req.sector,
+            ):
+                full_answer += token
+                yield f"data: {_json_mod.dumps({'type': 'token', 'content': token})}\n\n"
+        except Exception as exc:
+            yield f"data: {_json_mod.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+            return
+
+        answer_ms = int((time.time() - t1) * 1000)
+
+        # 3. Post-stream validation (no retry loop for streaming)
+        retrieved_slugs = {c.get("slug", "") for c in chunks if c.get("slug")}
+        t2 = time.time()
+        validation = (
+            validate_citations(full_answer, retrieved_slugs)
+            if is_enabled("citation_validation")
+            else ValidationResult(status="not_validated")
+        )
+        validation_ms = int((time.time() - t2) * 1000)
+
+        # 4. Audit log
+        total_ms = retrieval_ms + answer_ms + validation_ms
+        if is_enabled("audit_logging"):
+            try:
+                log_query(
+                    query_text=req.question,
+                    retrieved_chunk_ids=list(retrieved_slugs),
+                    source_type_breakdown=source_breakdown,
+                    generated_answer=full_answer,
+                    confidence_tier=confidence_tier,
+                    validation_status=validation.status,
+                    flagged_clauses=validation.flagged_clauses if validation.flagged_clauses else None,
+                    latency_ms=total_ms,
+                    stage_latency_ms={
+                        "retrieval": retrieval_ms,
+                        "generation": answer_ms,
+                        "validation": validation_ms,
+                    },
+                )
+            except Exception:
+                pass
+
+        # 5. Done event
+        _done_evt = _json_mod.dumps({
+            "type": "done",
+            "validation_status": validation.status,
+            "answer_ms": answer_ms,
+            "validation_ms": validation_ms,
+            "total_ms": total_ms,
+        })
+        yield f"data: {_done_evt}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class ReviewResolution(BaseModel):
+    resolution: str = Field(description="confirmed_ok | confirmed_bad | edited")
+    corrected_answer: Optional[str] = None
+
+
+@v1.post("/audit/flagged/{row_id}/resolve")
+def v1_audit_resolve(row_id: str, body: ReviewResolution):
+    """Mark a flagged query as resolved by an internal reviewer."""
+    try:
+        found = resolve_flagged(row_id, body.resolution, body.corrected_answer)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Flagged row '{row_id}' not found.")
+    return {"status": "resolved", "id": row_id, "resolution": body.resolution}
 
 
 @v1.get("/audit/flagged")

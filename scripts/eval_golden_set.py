@@ -44,7 +44,7 @@ def load_golden_set(entry_id: str | None = None) -> list[dict]:
 def query_api(api_url: str, question: str, timeout: int = 30) -> dict:
     resp = requests.post(
         f"{api_url}/query",
-        json={"question": question, "top_k": 8},
+        json={"question": question, "top_k": 12},
         timeout=timeout,
     )
     resp.raise_for_status()

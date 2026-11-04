@@ -78,7 +78,7 @@ class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     sector: Optional[str] = None
     slug: Optional[str] = None
-    top_k: int = Field(default=8, ge=1, le=20)
+    top_k: int = Field(default=12, ge=1, le=20)
 
 
 class CitationItem(BaseModel):

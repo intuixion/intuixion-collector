@@ -40,11 +40,11 @@
     "query": "When does a debt prescribe under the National Credit Act?",
     "statute_ref": "NCA s126B",
     "required_grounds": [
-      "three years",
-      "written acknowledgement",
-      "acknowledgement of debt"
+      "extinguished by prescription",
+      "Prescription Act",
+      "defence of prescription"
     ],
-    "note": "Prescription period and interruption conditions must both appear"
+    "note": "NCA s126B (inserted by Amendment Act 19 of 2014) prohibits selling or collecting time-barred debt. The 3-year period and written-acknowledgement interruption come from the Prescription Act 68 of 1969 (not currently in corpus). Required phrases match s126B language available in corpus."
   },
   {
     "id": "bcea_overtime",

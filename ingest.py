@@ -295,7 +295,16 @@ def embed_batch(client: OpenAI, texts: list[str]) -> list[list[float]]:
 # ---------------------------------------------------------------------------
 def get_qdrant(url: Optional[str], api_key: Optional[str]) -> QdrantClient:
     if url:
-        return QdrantClient(url=url, api_key=api_key)
+        from urllib.parse import urlparse
+        _p = urlparse(url)
+        _use_https = _p.scheme == "https"
+        _port = _p.port or (443 if _use_https else 6333)
+        return QdrantClient(
+            host=_p.hostname,
+            port=_port,
+            https=_use_https,
+            api_key=api_key,
+        )
     return QdrantClient(":memory:")
 
 

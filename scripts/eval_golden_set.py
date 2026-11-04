@@ -4,7 +4,7 @@ Phase 0 golden-set evaluator (tech direction Section 3).
 Runs each golden query against the live /query API and checks that every
 required ground appears in the generated answer.
 
-Exits non-zero if any entry fails — intended as a CI gate that blocks
+Exits non-zero if any entry fails -- intended as a CI gate that blocks
 any corpus or prompt change that regresses grounding accuracy.
 
 Usage:
@@ -26,7 +26,7 @@ from pathlib import Path
 try:
     import requests
 except ImportError:
-    sys.exit("requests not installed — pip install requests")
+    sys.exit("requests not installed -- pip install requests")
 
 GOLDEN_SET_PATH = Path(__file__).parent / "golden_set.json"
 
@@ -79,8 +79,8 @@ def main() -> None:
     args = p.parse_args()
 
     entries = load_golden_set(args.entry_id)
-    print(f"\nintuixion golden-set eval — {len(entries)} entr{'y' if len(entries)==1 else 'ies'}")
-    print(f"API: {args.api}\n{'─' * 60}")
+    print(f"\nintuixion golden-set eval -- {len(entries)} entr{'y' if len(entries)==1 else 'ies'}")
+    print(f"API: {args.api}\n{'-' * 60}")
 
     results = []
     for entry in entries:
@@ -106,14 +106,14 @@ def main() -> None:
     # Summary
     passed_count = sum(1 for r in results if r.get("passed"))
     total = len(results)
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(f"Result: {passed_count}/{total} passed")
     failed = [r for r in results if not r.get("passed")]
     if failed:
         print("\nFailed entries:")
         for r in failed:
             if "error" in r:
-                print(f"  {r['id']}: ERROR — {r['error']}")
+                print(f"  {r['id']}: ERROR -- {r['error']}")
             else:
                 print(f"  {r['id']}: missing {r['missing']}")
         print(

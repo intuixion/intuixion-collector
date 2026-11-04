@@ -29,8 +29,8 @@
     "statute_ref": "NCA s80",
     "required_grounds": [
       "over-indebtedness",
-      "debt restructuring",
-      "s80",
+      "restructuring",
+      "section 80",
       "failed to conduct"
     ],
     "note": "s80 has two distinct reckless-credit scenarios; both should appear"
@@ -146,12 +146,12 @@
     "query": "What is the role of the Prudential Authority under the Financial Sector Regulation Act?",
     "statute_ref": "FSRA s32-33",
     "required_grounds": [
-      "prudential soundness",
+      "safety and soundness",
       "financial stability",
       "South African Reserve Bank",
       "licences"
     ],
-    "note": "PA's mandate, location within SARB, and licensing powers must all appear"
+    "note": "PA's mandate, location within SARB, and licensing powers must all appear. FSRA s33 uses 'safety and soundness of financial institutions' (not 'prudential soundness')."
   },
   {
     "id": "eea_designated_groups",

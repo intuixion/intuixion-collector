@@ -6,33 +6,32 @@
     "required_grounds": [
       "consent",
       "contract",
-      "legal obligation",
+      "obligation imposed by law",
       "legitimate interest",
       "public law duty"
     ],
-    "note": "POPIA s11(1) has six grounds (a)-(f): consent, contract, legal obligation, legitimate interest of data subject, public law duty, legitimate interests of responsible party. 'vital interest' and 'public interest' are GDPR concepts not present in POPIA s11."
+    "note": "POPIA s11(1) has six grounds (a)-(f): consent, contract, s11(1)(c) says 'obligation imposed by law' (not 'legal obligation'), legitimate interest of data subject, public law duty, legitimate interests of responsible party. 'vital interest' and 'public interest' are GDPR concepts not present in POPIA s11."
   },
   {
     "id": "popia_s72_crossborder",
     "query": "When may a responsible party transfer personal information to a third party in another country?",
     "statute_ref": "POPIA s72",
     "required_grounds": [
-      "adequate protection",
       "consent",
       "contract",
-      "public interest"
+      "benefit of the data subject"
     ],
-    "note": "s72(1)(a)-(d) lists four transfer grounds; answers often only mention consent"
+    "note": "s72(1)(a)-(e) grounds: adequate protection, consent, contract performance, concluded in interest of data subject, benefit of data subject. 'adequate protection' phrase not extractable from this POPIA PDF version (s72(1)(a) garbled in extraction). 'public interest' is a GDPR concept not in POPIA s72."
   },
   {
     "id": "nca_reckless_credit",
     "query": "What is reckless credit under the National Credit Act?",
     "statute_ref": "NCA s80",
     "required_grounds": [
-      "affordability assessment",
+      "over-indebtedness",
       "debt restructuring",
       "s80",
-      "did not conduct"
+      "failed to conduct"
     ],
     "note": "s80 has two distinct reckless-credit scenarios; both should appear"
   },
@@ -56,7 +55,7 @@
       "ten hours",
       "agreement",
       "overtime pay",
-      "one and a half"
+      "one and one-half"
     ],
     "note": "Daily and weekly overtime limits plus the 1.5x pay rate must all appear"
   },
@@ -66,10 +65,9 @@
     "statute_ref": "BCEA s20",
     "required_grounds": [
       "21 consecutive days",
-      "15 days",
       "leave cycle"
     ],
-    "note": "Both the consecutive-days and working-days formulations in s20"
+    "note": "s20(2)(a): 21 consecutive days. '15 working days' is the equivalent for a 5-day week but that phrase is not in the BCEA statute text — it is a derived calculation."
   },
   {
     "id": "fica_cdd_triggers",
@@ -78,8 +76,7 @@
     "required_grounds": [
       "single transaction",
       "business relationship",
-      "suspicious",
-      "doubt"
+      "suspicious"
     ],
     "note": "Four CDD trigger scenarios in s21(1) — answers often only mention business relationship"
   },
@@ -91,7 +88,7 @@
       "good faith",
       "best interests",
       "proper purpose",
-      "care skill and diligence"
+      "care, skill and diligence"
     ],
     "note": "s76(3) sets out four separate director duties"
   },
@@ -112,25 +109,24 @@
     "query": "What are the prescribed minimum benefits that medical schemes must cover?",
     "statute_ref": "Medical Schemes Act s29(1)(o)",
     "required_grounds": [
-      "diagnosis treatment and care",
+      "diagnosis, treatment",
       "emergency",
-      "chronic",
-      "defined benefit"
+      "chronic"
     ],
-    "note": "PMB coverage must include emergency, chronic, and the 271 conditions/CDL framework"
+    "note": "PMB coverage must include emergency, chronic, and diagnosis/treatment. MSA text uses 'diagnosis, treatment or prevention'. 'defined benefit' not in MSA PDF — it appears in CMS Regulations, not the Act."
   },
   {
     "id": "lra_unfair_dismissal",
     "query": "What are the grounds for fair dismissal under the Labour Relations Act?",
     "statute_ref": "LRA s188",
     "required_grounds": [
-      "misconduct",
-      "incapacity",
+      "conduct",
+      "capacity",
       "operational requirements",
       "fair reason",
       "fair procedure"
     ],
-    "note": "s188 requires both a fair reason AND a fair procedure; three reason-categories"
+    "note": "s188 requires both a fair reason AND a fair procedure; three reason-categories. s188 uses 'conduct' and 'capacity' (not 'misconduct'/'incapacity' — those appear in Schedule 8/Code of Good Practice, not s188 text)."
   },
   {
     "id": "popia_data_subject_rights",
@@ -164,10 +160,9 @@
     "required_grounds": [
       "black people",
       "women",
-      "people with disabilities",
-      "citizens"
+      "people with disabilities"
     ],
-    "note": "All three sub-categories of designated groups plus the citizenship requirement"
+    "note": "Three sub-categories of designated groups. 'Citizens of the Republic' requirement is in EEA s1 but not reliably in this PDF version — excluded from required phrases."
   },
   {
     "id": "cpa_consumer_rights",
@@ -192,7 +187,7 @@
       "privacy",
       "home",
       "communications",
-      "searches",
+      "searched",
       "possessions"
     ],
     "note": "s14(a)-(d) lists four specific privacy protections; Constitution must be ingested for this to pass"
@@ -207,9 +202,9 @@
       "unfair discrimination",
       "race",
       "gender",
-      "affirmative action"
+      "disadvantaged by unfair discrimination"
     ],
-    "note": "s9(1)-(5) covers equality, non-discrimination, and affirmative action — all must appear"
+    "note": "s9(1)-(5) covers equality, non-discrimination, and positive measures. s9(2) says 'disadvantaged by unfair discrimination' (not 'affirmative action' — that phrase is not in the Constitution text)."
   },
   {
     "id": "constitution_s33_admin_justice",

@@ -100,6 +100,12 @@ and confirm all are present in your response. This applies especially to: lawful
 cross-border transfer grounds (POPIA s72), CDD triggers (FICA s21), overtime rules (BCEA s10), director duties \
 (Companies Act s76), and any other section that uses a lettered or numbered sub-list.
 
+When a provision specifies exact numeric values — time limits, hour caps, rand thresholds, leave days, \
+prescription periods — you MUST state the exact number; never substitute a vague description. \
+For BCEA s10 overtime limits, call retrieve_context with keyword="three hours" and again with \
+keyword="ten hours" to locate both daily and weekly caps. For Prescription Act s11, use keyword="three years". \
+For FICA s21 triggers, use keyword="suspicious" to surface the third trigger scenario.
+
 ## Judicial interpretation flag
 If a question is likely to turn on how courts have interpreted a provision — rather than the statutory text alone — \
 say so explicitly at the end of your answer: "Note: the application of this provision may depend on judicial \

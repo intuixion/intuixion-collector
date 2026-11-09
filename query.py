@@ -80,16 +80,18 @@ def retrieve(
     sector: Optional[str] = None,
     slug: Optional[str] = None,
     keyword: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> list[dict]:
     """
     Semantic search over the Qdrant collection with optional keyword post-filter.
 
     Args:
-        query:   Natural-language question to search for.
-        top_k:   Number of results to return.
-        sector:  Filter by sector (cross | healthcare | financial | retail).
-        slug:    Filter to a specific source document by slug.
-        keyword: Term that must appear in the chunk text (case-insensitive substring).
+        query:     Natural-language question to search for.
+        top_k:     Number of results to return.
+        sector:    Filter by sector (cross | healthcare | financial | retail).
+        slug:      Filter to a specific source document by slug.
+        keyword:   Term that must appear in the chunk text (case-insensitive substring).
+        tenant_id: Restrict to chunks belonging to this tenant (multi-tenancy).
 
     Returns:
         List of chunk dicts ordered by relevance score.
@@ -101,6 +103,8 @@ def retrieve(
         conditions.append(FieldCondition(key="sector", match=MatchValue(value=sector)))
     if slug:
         conditions.append(FieldCondition(key="slug", match=MatchValue(value=slug)))
+    if tenant_id:
+        conditions.append(FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)))
     if keyword:
         conditions.append(FieldCondition(key="text", match=MatchText(text=keyword)))
 

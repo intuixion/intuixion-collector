@@ -41,12 +41,11 @@ def load_golden_set(entry_id: str | None = None) -> list[dict]:
     return entries
 
 
-def query_api(api_url: str, question: str, timeout: int = 30) -> dict:
-    resp = requests.post(
-        f"{api_url}/query",
-        json={"question": question, "top_k": 12},
-        timeout=timeout,
-    )
+def query_api(api_url: str, question: str, timeout: int = 30, keyword_hint: str | None = None) -> dict:
+    payload: dict = {"question": question, "top_k": 12}
+    if keyword_hint:
+        payload["keyword_hint"] = keyword_hint
+    resp = requests.post(f"{api_url}/query", json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -88,7 +87,7 @@ def main() -> None:
             print(f"\nQuerying: {entry['query'][:80]}...")
         try:
             t0 = time.time()
-            api_result = query_api(args.api, entry["query"], args.timeout)
+            api_result = query_api(args.api, entry["query"], args.timeout, entry.get("keyword_hint"))
             elapsed = time.time() - t0
             passed, missing = check_entry(entry, api_result, args.verbose)
             results.append({

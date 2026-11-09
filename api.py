@@ -81,6 +81,8 @@ class QueryRequest(BaseModel):
     sector: Optional[str] = None
     slug: Optional[str] = None
     top_k: int = Field(default=12, ge=1, le=20)
+    keyword_hint: Optional[str] = Field(default=None, max_length=200)
+    tenant_id: Optional[str] = Field(default=None, max_length=200)
 
 
 class CitationItem(BaseModel):
@@ -205,6 +207,8 @@ def _run_query(req: QueryRequest) -> QueryResponse:
             top_k=req.top_k,
             sector=req.sector,
             slug=req.slug,
+            keyword=req.keyword_hint,
+            tenant_id=req.tenant_id,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Retrieval failed: {exc}")
@@ -225,7 +229,13 @@ def _run_query(req: QueryRequest) -> QueryResponse:
     # ── 3. Generate ──────────────────────────────────────────────────────────
     agent_question = req.question
     if conflict_result["has_conflict"] and conflict_result["reconcile_note"]:
-        agent_question = f"{req.question}\n\n{conflict_result['reconcile_note']}"
+        agent_question = f"{agent_question}\n\n{conflict_result['reconcile_note']}"
+    if req.keyword_hint:
+        agent_question = (
+            f"{agent_question}\n\n"
+            f"[Retrieval hint: use keyword=\"{req.keyword_hint}\" in your retrieve_context "
+            f"call to locate the exact statutory text for this answer]"
+        )
 
     t1 = time.time()
     try:
@@ -481,8 +491,11 @@ def v1_query_stream(req: QueryRequest):
 
         # 1. Retrieve + confidence + conflict detection
         try:
-            chunks = retrieve(query=req.question, top_k=req.top_k,
-                              sector=req.sector, slug=req.slug)
+            chunks = retrieve(
+                query=req.question, top_k=req.top_k,
+                sector=req.sector, slug=req.slug,
+                keyword=req.keyword_hint, tenant_id=req.tenant_id,
+            )
         except Exception as exc:
             yield f"data: {_json_mod.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
             return
@@ -528,7 +541,13 @@ def v1_query_stream(req: QueryRequest):
 
         agent_question = req.question
         if conflict_result["has_conflict"] and conflict_result["reconcile_note"]:
-            agent_question = f"{req.question}\n\n{conflict_result['reconcile_note']}"
+            agent_question = f"{agent_question}\n\n{conflict_result['reconcile_note']}"
+        if req.keyword_hint:
+            agent_question = (
+                f"{agent_question}\n\n"
+                f"[Retrieval hint: use keyword=\"{req.keyword_hint}\" in your retrieve_context "
+                f"call to locate the exact statutory text for this answer]"
+            )
 
         t1 = time.time()
         full_answer = ""

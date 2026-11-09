@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import "../styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "intuixion.ai — Document Intelligence for South African Professionals",
+  title: "intuixion.ai — Cited Regulatory Intelligence for South Africa",
   description:
-    "DocuRAG gives legal, medical, and financial professionals instant, cited answers from their own documents. POPIA-compliant. Built in South Africa.",
+    "Get instant, cited answers from SA regulatory documents. POPIA-compliant. Built in South Africa.",
   openGraph: {
     title: "intuixion.ai",
-    description: "Intelligent document analysis. POPIA-compliant.",
+    description: "Cited regulatory intelligence for South African professionals.",
     url: "https://intuixion.ai",
     siteName: "intuixion.ai",
     locale: "en_ZA",
@@ -21,8 +22,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body>{children}</body>
+      </html>
+    </ClerkProvider>
   );
 }

@@ -75,6 +75,21 @@ img, video {
   display: block;
 }
 
+/* ─── Animations ─── */
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%       { opacity: 1;   transform: scale(1); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.6s ease both;
+}
+
 /* ─── Utility classes ─── */
 .container {
   max-width: 1080px;

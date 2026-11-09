@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -20,7 +21,7 @@ export default function Navbar() {
           intuix<span style={styles.logoAccent}>ion</span>.ai
         </Link>
 
-        {/* Links */}
+        {/* Marketing nav links — hidden when on /ask */}
         <ul style={styles.links}>
           {["Product", "Sectors", "Pricing", "About"].map((label) => (
             <li key={label}>
@@ -31,10 +32,24 @@ export default function Navbar() {
           ))}
         </ul>
 
-        {/* CTA */}
-        <Link href="#early-access" style={styles.cta}>
-          Get early access
-        </Link>
+        {/* Actions */}
+        <div style={styles.actions}>
+          <SignedOut>
+            <Link href="/sign-in" style={styles.signIn}>
+              Sign in
+            </Link>
+            <Link href="#early-access" style={styles.cta}>
+              Get early access
+            </Link>
+          </SignedOut>
+
+          <SignedIn>
+            <Link href="/ask" style={styles.cta}>
+              Ask →
+            </Link>
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+        </div>
       </div>
     </nav>
   );
@@ -88,6 +103,20 @@ const styles = {
   } as React.CSSProperties,
 
   link: {
+    fontSize: 14,
+    color: "var(--ink-muted)",
+    fontWeight: 400,
+    transition: "color 0.15s",
+  } as React.CSSProperties,
+
+  actions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "1.25rem",
+    flexShrink: 0,
+  } as React.CSSProperties,
+
+  signIn: {
     fontSize: 14,
     color: "var(--ink-muted)",
     fontWeight: 400,

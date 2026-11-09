@@ -52,14 +52,14 @@
     "query": "What are the overtime rules for employees under the Basic Conditions of Employment Act?",
     "statute_ref": "BCEA s10",
     "required_grounds": [
-      "three hours",
-      "ten hours",
+      "3 hours",
+      "10 hours",
       "agreement",
       "overtime pay",
       "one and one-half"
     ],
-    "keyword_hint": "three hours",
-    "note": "Daily and weekly overtime limits plus the 1.5x pay rate must all appear"
+    "keyword_hint": "3 hours",
+    "note": "BCEA s10 uses numerals (3 hours, 10 hours) not words — daily and weekly overtime limits plus the 1.5x pay rate must all appear"
   },
   {
     "id": "bcea_annual_leave",

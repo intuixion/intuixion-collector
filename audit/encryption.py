@@ -41,6 +41,17 @@ def _fernet():
         ) from exc
 
 
+def require_key_in_production() -> None:
+    """Fail closed: refuse to start on Fly (FLY_APP_NAME is set by the platform) or with
+    ENV=production unless a valid AUDIT_ENCRYPTION_KEY is configured."""
+    in_production = bool(os.getenv("FLY_APP_NAME")) or os.getenv("ENV", "").lower() == "production"
+    if in_production and _fernet() is None:
+        raise RuntimeError(
+            f"{_KEY_ENV} must be set in production — audit rows would otherwise be stored "
+            "in plaintext. Set it with: flyctl secrets set AUDIT_ENCRYPTION_KEY=<key>"
+        )
+
+
 def encrypt(plaintext: Optional[str]) -> Optional[str]:
     """Encrypt a string. Returns ciphertext prefixed with 'enc:' so we can detect it on read."""
     if plaintext is None:

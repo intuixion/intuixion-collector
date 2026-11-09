@@ -1,7 +1,7 @@
 """
 Phase 0 golden-set evaluator (tech direction Section 3).
 
-Runs each golden query against the live /query API and checks that every
+Runs each golden query against the live /v1/query API and checks that every
 required ground appears in the generated answer.
 
 Exits non-zero if any entry fails -- intended as a CI gate that blocks
@@ -19,6 +19,7 @@ added to golden_set.json as a new entry before the fix is considered done.
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -45,7 +46,16 @@ def query_api(api_url: str, question: str, timeout: int = 30, keyword_hint: str 
     payload: dict = {"question": question, "top_k": 12}
     if keyword_hint:
         payload["keyword_hint"] = keyword_hint
-    resp = requests.post(f"{api_url}/query", json=payload, timeout=timeout)
+    # The API requires a bearer token; scripts use the SERVICE_API_KEY (see auth.py)
+    token = os.getenv("INTUIXION_API_TOKEN") or os.getenv("SERVICE_API_KEY", "")
+    if not token:
+        sys.exit("Set INTUIXION_API_TOKEN (or SERVICE_API_KEY) to call the API.")
+    resp = requests.post(
+        f"{api_url}/v1/query",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=timeout,
+    )
     resp.raise_for_status()
     return resp.json()
 

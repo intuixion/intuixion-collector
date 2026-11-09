@@ -23,7 +23,9 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 from qdrant_client import QdrantClient, models as qmodels
-from qdrant_client.models import FieldCondition, Filter, MatchText, MatchValue
+from qdrant_client.models import (
+    FieldCondition, Filter, IsEmptyCondition, MatchText, MatchValue, PayloadField,
+)
 
 load_dotenv()
 
@@ -103,9 +105,17 @@ def retrieve(
         conditions.append(FieldCondition(key="sector", match=MatchValue(value=sector)))
     if slug:
         conditions.append(FieldCondition(key="slug", match=MatchValue(value=slug)))
+    # Public-corpus points carry no tenant_id. A tenant sees the public corpus plus its
+    # own documents; a caller without a tenant sees the public corpus only.
+    public_corpus = IsEmptyCondition(is_empty=PayloadField(key="tenant_id"))
     if tenant_id:
-        conditions.append(FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)))
-    if keyword:
+        conditions.append(Filter(should=[
+            FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)),
+            public_corpus,
+        ]))
+    else:
+        conditions.append(public_corpus)
+    if keyword:  # must stay last — the fallback below drops conditions[-1]
         conditions.append(FieldCondition(key="text", match=MatchText(text=keyword)))
 
     query_filter = Filter(must=conditions) if conditions else None
@@ -127,13 +137,11 @@ def retrieve(
         results = _search(query_filter)
     except Exception as exc:
         # MatchText requires a payload text index — retry without the keyword filter
-        # and fall back to substring post-filtering below
-        if keyword and conditions[:-1]:
-            results = _search(Filter(must=conditions[:-1]))
-        elif keyword:
-            results = _search(None)
-        else:
+        # and fall back to substring post-filtering below. The tenant condition is
+        # always present, so the retry never searches unfiltered.
+        if not keyword:
             raise exc
+        results = _search(Filter(must=conditions[:-1]))
 
     chunks = []
     for r in results:

@@ -168,16 +168,18 @@ TOOLS = [
 # ---------------------------------------------------------------------------
 # Tool execution
 # ---------------------------------------------------------------------------
-def run_tool(tool_name: str, tool_input: dict) -> str:
+def run_tool(tool_name: str, tool_input: dict, tenant_id: Optional[str] = None) -> str:
     if tool_name != "retrieve_context":
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
+    # tenant_id is set by the caller, never by the model's tool input
     top_k = min(int(tool_input.get("top_k", 6)), MAX_CONTEXT_CHUNKS)
     chunks = retrieve(
         query=tool_input["query"],
         top_k=top_k,
         sector=tool_input.get("sector"),
         keyword=tool_input.get("keyword"),
+        tenant_id=tenant_id,
     )
 
     if not chunks:
@@ -204,10 +206,12 @@ def run_agent(
     history: list[dict],
     sector_hint: Optional[str] = None,
     verbose: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """
     Single agent turn. Returns (assistant_reply, updated_history).
-    Handles multi-step tool use automatically.
+    Handles multi-step tool use automatically. tenant_id scopes retrieval to the
+    public corpus plus that tenant's documents (None = public corpus only).
     """
     client = _get_llm_client()
 
@@ -260,7 +264,7 @@ def run_agent(
                     continue
                 if verbose:
                     print(f"  [TOOL] {block.name}({json.dumps(block.input)})", file=sys.stderr)
-                result = run_tool(block.name, block.input)
+                result = run_tool(block.name, block.input, tenant_id)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
@@ -282,6 +286,7 @@ def run_agent_stream(
     user_message: str,
     history: list[dict],
     sector_hint: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Iterator[str]:
     """
     Generator that yields raw text tokens for the final assistant answer.
@@ -323,7 +328,7 @@ def run_agent_stream(
             for block in message.content:
                 if block.type != "tool_use":
                     continue
-                result = run_tool(block.name, block.input)
+                result = run_tool(block.name, block.input, tenant_id)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

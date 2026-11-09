@@ -1,14 +1,16 @@
 """
-intuixion.ai — DocuRAG FastAPI Backend  v1.2.0
+intuixion.ai — DocuRAG FastAPI Backend  v1.3.0
 
-All endpoints are available at both root and /v1/ prefix (v1 is canonical):
-    POST /v1/query       — semantic search + Claude answer (with citation validation)
-    POST /v1/ingest      — upload and ingest a PDF
-    GET  /v1/sources     — list ingested sources
-    GET  /health         — health check (root only — used by uptime monitors)
-    GET  /v1/audit/flagged  — internal review queue (flagged answers)
-    GET  /v1/audit/signals  — demand-signal counts (case law, human review)
-    GET  /v1/metrics     — lightweight operational metrics
+Every /v1 route requires a bearer token (see auth.py); /health is the only public route.
+    POST /v1/query          — semantic search + Claude answer (with citation validation)
+    POST /v1/query/stream   — same, streamed as SSE
+    GET  /v1/sources        — list ingested sources
+    POST /v1/ingest         — upload a PDF into the public corpus        [admin]
+    GET  /v1/audit/flagged  — internal review queue (flagged answers)    [admin]
+    POST /v1/audit/flagged/{id}/resolve — resolve a flagged answer       [admin]
+    GET  /v1/audit/signals  — demand-signal counts (case law, review)    [admin]
+    GET  /v1/metrics        — lightweight operational metrics            [admin]
+    GET  /health            — health check (public — used by uptime monitors)
 """
 
 import json as _json_mod
@@ -22,7 +24,7 @@ from typing import Optional
 import urllib.request
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -38,7 +40,10 @@ if _sentry_dsn:
     except ImportError:
         pass  # sentry_sdk not installed — skip silently
 
+from audit.encryption import require_key_in_production
 from audit.logger import init_db, log_query, flagged_review_queue, demand_signals, query_metrics, resolve_flagged
+from auth import Principal, require_admin, require_user
+from rate_limit import limit_queries
 from validation.citation_parser import validate as validate_citations, repair_prompt, ValidationResult
 from validation.confidence_scoring import score as confidence_score, infer_source_type
 from validation.conflict_detector import detect_conflicts
@@ -46,17 +51,19 @@ from validation.feature_flags import is_enabled
 from validation.grounding_judge import judge_in_background
 from validation.saflii import saflii_url as _saflii_url, noteup_url as _noteup_url
 
-# Initialise audit DB on startup
+# Refuse to start in production without audit encryption, then initialise audit DB
+require_key_in_production()
 init_db()
 
 app = FastAPI(
     title="intuixion.ai DocuRAG API",
     description="SA Regulatory Document Intelligence",
-    version="1.2.0",
+    version="1.3.0",
 )
 
-# Versioned router — all feature endpoints live here; mounted at /v1/
-v1 = APIRouter(prefix="/v1")
+# Versioned router — all feature endpoints live here; mounted at /v1/.
+# Every route requires an authenticated caller; admin routes add require_admin.
+v1 = APIRouter(prefix="/v1", dependencies=[Depends(require_user)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,7 +89,7 @@ class QueryRequest(BaseModel):
     slug: Optional[str] = None
     top_k: int = Field(default=12, ge=1, le=20)
     keyword_hint: Optional[str] = Field(default=None, max_length=200)
-    tenant_id: Optional[str] = Field(default=None, max_length=200)
+    # No tenant_id field: the tenant comes from the caller's token (Principal.org_id)
 
 
 class CitationItem(BaseModel):
@@ -161,11 +168,11 @@ def health():
         except Exception:
             return JSONResponse(
                 {"status": "degraded", "qdrant": "unreachable",
-                 "service": "intuixion-docurag", "version": "1.2.0"},
+                 "service": "intuixion-docurag", "version": app.version},
                 status_code=503,
             )
     return {"status": "ok", "qdrant": "ok" if qdrant_url else "skipped",
-            "service": "intuixion-docurag", "version": "1.2.0"}
+            "service": "intuixion-docurag", "version": app.version}
 
 
 def _extract_agent_slugs(history: list[dict]) -> set[str]:
@@ -191,8 +198,8 @@ def _extract_agent_slugs(history: list[dict]) -> set[str]:
     return slugs
 
 
-def _run_query(req: QueryRequest) -> QueryResponse:
-    """Core query logic — shared by root and /v1/ endpoints."""
+def _run_query(req: QueryRequest, tenant_id: Optional[str]) -> QueryResponse:
+    """Core query logic. tenant_id comes from the caller's token, never the request body."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
@@ -208,7 +215,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
             sector=req.sector,
             slug=req.slug,
             keyword=req.keyword_hint,
-            tenant_id=req.tenant_id,
+            tenant_id=tenant_id,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Retrieval failed: {exc}")
@@ -244,6 +251,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
             history=[],
             sector_hint=req.sector,
             verbose=False,
+            tenant_id=tenant_id,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Agent failed: {exc}")
@@ -273,6 +281,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
                 history=[],
                 sector_hint=req.sector,
                 verbose=False,
+                tenant_id=tenant_id,
             )
             answer_ms += int((time.time() - t_retry) * 1000)
             retry_slugs = _extract_agent_slugs(retry_history) or retrieved_slugs
@@ -344,7 +353,7 @@ def _run_query(req: QueryRequest) -> QueryResponse:
 
 
 async def _run_ingest(file: UploadFile, sector: str) -> IngestResponse:
-    """Core ingest logic — shared by root and /v1/ endpoints."""
+    """Ingest a PDF into the shared public corpus (admin-only route)."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -418,7 +427,7 @@ async def _run_ingest(file: UploadFile, sector: str) -> IngestResponse:
 
 
 def _sources_list() -> list[SourceItem]:
-    """Core sources logic — shared by root and /v1/ endpoints."""
+    """List public-corpus sources from the manifest and ingest state."""
     import json as _json
     manifest_path = Path("data/manifest.json")
     if not manifest_path.exists():
@@ -455,11 +464,11 @@ def _sources_list() -> list[SourceItem]:
 # ── /v1/ versioned routes (canonical) ────────────────────────────────────────
 
 @v1.post("/query", response_model=QueryResponse)
-def v1_query(req: QueryRequest):
-    return _run_query(req)
+def v1_query(req: QueryRequest, principal: Principal = Depends(limit_queries)):
+    return _run_query(req, tenant_id=principal.org_id)
 
 
-@v1.post("/ingest", response_model=IngestResponse)
+@v1.post("/ingest", response_model=IngestResponse, dependencies=[Depends(require_admin)])
 async def v1_ingest(file: UploadFile = File(...), sector: str = Form(default="cross")):
     return await _run_ingest(file, sector)
 
@@ -470,7 +479,7 @@ def v1_sources():
 
 
 @v1.post("/query/stream")
-def v1_query_stream(req: QueryRequest):
+def v1_query_stream(req: QueryRequest, principal: Principal = Depends(limit_queries)):
     """
     SSE streaming endpoint — same semantics as /v1/query but streams answer tokens.
 
@@ -485,6 +494,7 @@ def v1_query_stream(req: QueryRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     retrieve = _get_retriever()
+    tenant_id = principal.org_id
 
     def _generate():
         t0 = time.time()
@@ -494,7 +504,7 @@ def v1_query_stream(req: QueryRequest):
             chunks = retrieve(
                 query=req.question, top_k=req.top_k,
                 sector=req.sector, slug=req.slug,
-                keyword=req.keyword_hint, tenant_id=req.tenant_id,
+                keyword=req.keyword_hint, tenant_id=tenant_id,
             )
         except Exception as exc:
             yield f"data: {_json_mod.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
@@ -556,6 +566,7 @@ def v1_query_stream(req: QueryRequest):
                 user_message=agent_question,
                 history=[],
                 sector_hint=req.sector,
+                tenant_id=tenant_id,
             ):
                 full_answer += token
                 yield f"data: {_json_mod.dumps({'type': 'token', 'content': token})}\n\n"
@@ -619,7 +630,7 @@ class ReviewResolution(BaseModel):
     corrected_answer: Optional[str] = None
 
 
-@v1.post("/audit/flagged/{row_id}/resolve")
+@v1.post("/audit/flagged/{row_id}/resolve", dependencies=[Depends(require_admin)])
 def v1_audit_resolve(row_id: str, body: ReviewResolution):
     """Mark a flagged query as resolved by an internal reviewer."""
     try:
@@ -631,12 +642,12 @@ def v1_audit_resolve(row_id: str, body: ReviewResolution):
     return {"status": "resolved", "id": row_id, "resolution": body.resolution}
 
 
-@v1.get("/audit/flagged")
+@v1.get("/audit/flagged", dependencies=[Depends(require_admin)])
 def v1_audit_flagged(limit: int = 50):
     return flagged_review_queue(limit=limit)
 
 
-@v1.get("/audit/signals")
+@v1.get("/audit/signals", dependencies=[Depends(require_admin)])
 def v1_audit_signals(days: int = 30):
     signals = demand_signals(days=days)
     return {
@@ -647,40 +658,13 @@ def v1_audit_signals(days: int = 30):
     }
 
 
-@v1.get("/metrics")
+@v1.get("/metrics", dependencies=[Depends(require_admin)])
 def v1_metrics():
     """Operational metrics — retry rate, avg latency, P95 latency."""
     try:
         return query_metrics()
     except Exception as exc:
         return {"error": str(exc)}
-
-
-# ── Root aliases (backward compat — existing Next.js frontend calls these) ───
-
-@app.post("/query", response_model=QueryResponse)
-def root_query(req: QueryRequest):
-    return _run_query(req)
-
-
-@app.post("/ingest", response_model=IngestResponse)
-async def root_ingest(file: UploadFile = File(...), sector: str = Form(default="cross")):
-    return await _run_ingest(file, sector)
-
-
-@app.get("/sources", response_model=list[SourceItem])
-def root_sources():
-    return _sources_list()
-
-
-@app.get("/audit/flagged")
-def root_audit_flagged(limit: int = 50):
-    return flagged_review_queue(limit=limit)
-
-
-@app.get("/audit/signals")
-def root_audit_signals(days: int = 30):
-    return v1_audit_signals(days)
 
 
 # Mount versioned router

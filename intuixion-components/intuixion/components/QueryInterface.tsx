@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useAuth } from "@clerk/nextjs";
 
 interface CitationItem {
   slug: string;
@@ -44,6 +45,7 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "https://intuixion-api.fly.dev";
 
 export default function QueryInterface() {
+  const { getToken } = useAuth();
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<QueryState>(INITIAL);
   const abortRef = useRef<AbortController | null>(null);
@@ -60,13 +62,26 @@ export default function QueryInterface() {
     setState({ ...INITIAL, phase: "loading" });
 
     try {
+      const token = await getToken();
+      if (!token) throw new Error("Your session has expired. Please sign in again.");
+
       const res = await fetch(`${API_URL}/v1/query/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ question: q, top_k: 12 }),
         signal: controller.signal,
       });
 
+      if (res.status === 401) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+      if (res.status === 429) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail ?? "Rate limit reached. Please try again later.");
+      }
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
@@ -130,7 +145,7 @@ export default function QueryInterface() {
         error: err instanceof Error ? err.message : "Request failed",
       }));
     }
-  }, [question, state.phase]);
+  }, [question, state.phase, getToken]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

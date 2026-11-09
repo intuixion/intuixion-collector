@@ -1,0 +1,74 @@
+name: Golden Set CI Gate
+
+# Blocks any push to main that regresses grounding accuracy.
+# Requires: OPENAI_API_KEY, ANTHROPIC_API_KEY, and a running API.
+# The API is started as a background service in the job.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/manifest.json"
+      - "agent.py"
+      - "query.py"
+      - "ingest.py"
+      - "scripts/golden_set.json"
+      - "validation/**"
+      - "audit/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "data/manifest.json"
+      - "agent.py"
+      - "query.py"
+      - "scripts/golden_set.json"
+      - "validation/**"
+
+jobs:
+  golden-set:
+    name: Grounding accuracy gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start Qdrant
+        run: |
+          docker run -d --name qdrant -p 6333:6333 qdrant/qdrant:latest
+          sleep 5
+
+      - name: Start API server
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          QDRANT_URL: http://localhost:6333
+          COLLECTION_NAME: intuixion_sa_docs
+          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}
+        run: |
+          # Restore pre-built Qdrant snapshot if cached, else warn (full re-ingest
+          # takes ~2h; cache the collection snapshot in CI for fast runs)
+          python api.py &
+          sleep 8
+          curl -sf http://localhost:8000/health || exit 1
+
+      - name: Run golden set evaluator
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}
+        run: |
+          python scripts/eval_golden_set.py --api http://localhost:8000 --verbose --timeout 120
+
+      # NOTE: The CI job above is the gate structure. A fully working run requires
+      # a pre-populated Qdrant collection (snapshot cached as a CI artifact from the
+      # ingest job). Until the Qdrant snapshot cache is wired up, run the golden set
+      # manually against the local dev API before merging corpus or prompt changes.

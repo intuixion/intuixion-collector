@@ -17,6 +17,7 @@ langchain-text-splitters>=1.0.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
+pyjwt[crypto]>=2.8.0   # Clerk session token verification (auth.py)
 
 # RAG agent
 anthropic>=0.100.0
